@@ -14,7 +14,7 @@ type MacNotificator struct{}
 
 func (no *MacNotificator) Notify(title string, message string) error {
 	var errOut bytes.Buffer
-	cmd := exec.Command("osascript", "-e", `display notification "`+message+`" with title "`+title+`"`)
+	cmd := exec.Command("osascript", "-e", `display notification "`+message+`" with title "roudo" subtitle "`+title+`" sound name "Blow"`)
 	cmd.Stderr = &errOut
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf(errOut.String())
