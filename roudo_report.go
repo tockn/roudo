@@ -18,8 +18,8 @@ func NewRoudoReporter(repo RoudoReportRepository, logger *slog.Logger, notificat
 		mux:                   sync.Mutex{},
 		notificator:           notificator,
 		shiftDuration:         5 * time.Hour,
-		startBreakInterval:    3 * time.Second,
-		finishWorkingInterval: 20 * time.Second,
+		startBreakInterval:    35 * time.Minute,
+		finishWorkingInterval: 4 * time.Hour,
 		logger:                logger,
 	}
 }

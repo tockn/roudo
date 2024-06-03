@@ -62,6 +62,7 @@ func buildTableWriter(rsByDate map[Date][]Roudo) (table.Writer, error) {
 	for date, rs := range rsByDate {
 		total := calculateTotalWorkTime(rs)
 		totalSum += total
+		totalStr := durationToString(total)
 		if len(rs) == 0 {
 			t.AppendRow(table.Row{
 				date,
@@ -69,7 +70,7 @@ func buildTableWriter(rsByDate map[Date][]Roudo) (table.Writer, error) {
 				"",
 				"",
 				"",
-				total,
+				totalStr,
 			})
 			continue
 		}
@@ -81,7 +82,7 @@ func buildTableWriter(rsByDate map[Date][]Roudo) (table.Writer, error) {
 					ptrTimeToString(r.EndAt),
 					"",
 					"",
-					total,
+					totalStr,
 				})
 			} else {
 				for _, b := range r.Breaks {
@@ -91,13 +92,13 @@ func buildTableWriter(rsByDate map[Date][]Roudo) (table.Writer, error) {
 						ptrTimeToString(r.EndAt),
 						b.StartAt.Format("15:04"),
 						ptrTimeToString(b.EndAt),
-						total,
+						totalStr,
 					})
 				}
 			}
 		}
 	}
-	t.AppendFooter(table.Row{"", "", "", "", "総労働時間", totalSum})
+	t.AppendFooter(table.Row{"", "", "", "", "総労働時間", durationToString(totalSum)})
 	t.SetColumnConfigs([]table.ColumnConfig{
 		{Number: 0, AutoMerge: true},
 		{Number: 1, AutoMerge: true},
@@ -124,6 +125,14 @@ func calculateTotalWorkTime(rs []Roudo) time.Duration {
 		}
 	}
 	return total
+}
+
+func durationToString(d time.Duration) string {
+	fl := 0.0
+	if d.Seconds() > 0 {
+		fl = 1
+	}
+	return fmt.Sprintf("%02d:%02d", int(d.Hours()), int(d.Minutes()+fl)%60)
 }
 
 func ptrTimeToString(t *time.Time) string {
