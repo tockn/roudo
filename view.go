@@ -34,14 +34,19 @@ func (v *Viewer) RenderCli(yearMonth string) error {
 	return nil
 }
 
-func (v *Viewer) listReports(yearMonth string) (map[Date][]Roudo, error) {
+type roudoRepots []struct {
+	Date   Date
+	Roudos []Roudo
+}
+
+func (v *Viewer) listReports(yearMonth string) (roudoRepots, error) {
 	monthStart, err := time.Parse("2006-01", yearMonth)
 	if err != nil {
 		return nil, fmt.Errorf("月の指定が不正です ex: 2024-03")
 	}
 	monthEnd := monthStart.AddDate(0, 1, 0).AddDate(0, 0, -1)
 
-	rsByDate := make(map[Date][]Roudo, 0)
+	rsByDate := make(map[Date][]Roudo)
 	for d := monthStart; d.Before(monthEnd); d = d.AddDate(0, 0, 1) {
 		date := Date(d.Format("2006-01-02"))
 		rs, err := v.repo.GetRoudoReport(date)
@@ -50,16 +55,28 @@ func (v *Viewer) listReports(yearMonth string) (map[Date][]Roudo, error) {
 		}
 		rsByDate[date] = rs
 	}
-	return rsByDate, nil
+
+	var reports roudoRepots
+	for d := monthStart; d.Before(monthEnd); d = d.AddDate(0, 0, 1) {
+		date := Date(d.Format("2006-01-02"))
+		reports = append(reports, struct {
+			Date   Date
+			Roudos []Roudo
+		}{Date: date, Roudos: rsByDate[date]})
+	}
+
+	return reports, nil
 }
 
-func buildTableWriter(rsByDate map[Date][]Roudo) (table.Writer, error) {
+func buildTableWriter(reports roudoRepots) (table.Writer, error) {
 	t := table.NewWriter()
 	t.SetOutputMirror(os.Stdout)
 	t.AppendHeader(table.Row{"日付", "労働開始", "労働終了", "休憩開始", "休憩終了", "総労働時間"})
 
 	totalSum := time.Duration(0)
-	for date, rs := range rsByDate {
+	for _, rp := range reports {
+		date := rp.Date
+		rs := rp.Roudos
 		total := calculateTotalWorkTime(rs)
 		totalSum += total
 		totalStr := durationToString(total)
