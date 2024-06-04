@@ -105,7 +105,7 @@ func (r *roudoReport) kansiWorking(now RoudoTime) error {
 	}
 
 	if now.Time().After(lastEventAt.Time().Add(r.startBreakInterval)) {
-		return r.startBreaking()
+		return r.startBreaking(*lastEventAt)
 	}
 
 	return nil
@@ -165,10 +165,11 @@ func (r *roudoReport) finishWorking(endAt RoudoTime) error {
 		return err
 	}
 	report[len(report)-1].EndAt = endAt.Time()
+	report[len(report)-1].Breaks = report[len(report)-1].Breaks[:len(report[len(report)-1].Breaks)-1]
 	return r.repo.SaveRoudoReport(endAt.ShiftedDate(), report)
 }
 
-func (r *roudoReport) startBreaking() error {
+func (r *roudoReport) startBreaking(startAt RoudoTime) error {
 	r.logger.Debug("start breaking")
 	r.notificator.Notify("休憩開始", "ゆっくり休んでください")
 
@@ -179,7 +180,7 @@ func (r *roudoReport) startBreaking() error {
 	if len(rs) == 0 {
 		return nil
 	}
-	rs[len(rs)-1].Breaks = append(rs[len(rs)-1].Breaks, Break{StartAt: time.Now()})
+	rs[len(rs)-1].Breaks = append(rs[len(rs)-1].Breaks, Break{StartAt: *startAt.Time()})
 	if err := r.repo.SaveRoudoReport(NewRoudoTime(time.Now(), r.shiftDuration).ShiftedDate(), rs); err != nil {
 		return err
 	}
