@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"roudo/roudo_event"
 	"time"
 
 	"github.com/tidwall/buntdb"
@@ -59,9 +60,9 @@ var kansiCommand = &cli.Command{
 
 		repo := NewRoudoReportRepository(db)
 		reporter := NewRoudoReporter(repo, logger, no)
-		mgr := NewRoudoManager(reporter, []IEventWatcher{
-			&KeyEventWatcher{},
-		}, logger, 1*time.Second)
+
+		ws := roudo_event.NewAllWatchers(logger)
+		mgr := NewRoudoManager(reporter, ws, logger, 1*time.Second)
 
 		return mgr.Kansi()
 	},

@@ -3,18 +3,19 @@ package main
 import (
 	"fmt"
 	"log/slog"
+	"roudo/roudo_event"
 	"time"
 )
 
 type RoudoManager struct {
 	reporter        RoudoReporter
-	eventWatchers   []IEventWatcher
+	eventWatchers   []roudo_event.Watcher
 	logger          *slog.Logger
 	exitCh          chan error
 	pollingInterval time.Duration
 }
 
-func NewRoudoManager(reporter RoudoReporter, eventWatchers []IEventWatcher, logger *slog.Logger, pollingInterval time.Duration) *RoudoManager {
+func NewRoudoManager(reporter RoudoReporter, eventWatchers []roudo_event.Watcher, logger *slog.Logger, pollingInterval time.Duration) *RoudoManager {
 	return &RoudoManager{
 		reporter:        reporter,
 		eventWatchers:   eventWatchers,
