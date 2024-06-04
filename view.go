@@ -71,15 +71,18 @@ func (v *Viewer) listReports(yearMonth string) (roudoRepots, error) {
 func buildTableWriter(reports roudoRepots) (table.Writer, error) {
 	t := table.NewWriter()
 	t.SetOutputMirror(os.Stdout)
-	t.AppendHeader(table.Row{"日付", "労働開始", "労働終了", "休憩開始", "休憩終了", "総労働時間"})
+	t.AppendHeader(table.Row{"日付", "労働開始", "労働終了", "休憩開始", "休憩終了", "休憩時間", "労働時間"})
 
-	totalSum := time.Duration(0)
+	totalWorkingTimeSum := time.Duration(0)
 	for _, rp := range reports {
 		date := rp.Date
 		rs := rp.Roudos
-		total := calculateTotalWorkTime(rs)
-		totalSum += total
-		totalStr := durationToString(total)
+		totalWorkingTime := calculateTotalWorkTime(rs)
+		totalWorkingTimeSum += totalWorkingTime
+		totalWorkingTimeStr := durationToString(totalWorkingTime)
+		totalBreakTime := calculateTotalBreakTime(rs)
+		totalBreakTimeStr := durationToString(totalBreakTime)
+
 		if len(rs) == 0 {
 			t.AppendRow(table.Row{
 				date,
@@ -87,7 +90,8 @@ func buildTableWriter(reports roudoRepots) (table.Writer, error) {
 				"",
 				"",
 				"",
-				totalStr,
+				totalBreakTimeStr,
+				totalWorkingTimeStr,
 			})
 			continue
 		}
@@ -99,7 +103,8 @@ func buildTableWriter(reports roudoRepots) (table.Writer, error) {
 					ptrTimeToString(r.EndAt),
 					"",
 					"",
-					totalStr,
+					totalBreakTimeStr,
+					totalWorkingTimeStr,
 				})
 			} else {
 				for _, b := range r.Breaks {
@@ -109,19 +114,21 @@ func buildTableWriter(reports roudoRepots) (table.Writer, error) {
 						ptrTimeToString(r.EndAt),
 						b.StartAt.Format("15:04"),
 						ptrTimeToString(b.EndAt),
-						totalStr,
+						totalBreakTimeStr,
+						totalWorkingTimeStr,
 					})
 				}
 			}
 		}
 	}
-	t.AppendFooter(table.Row{"", "", "", "", "総労働時間", durationToString(totalSum)})
+	t.AppendFooter(table.Row{"", "", "", "", "総労働時間", durationToString(totalWorkingTimeSum)})
 	t.SetColumnConfigs([]table.ColumnConfig{
 		{Number: 0, AutoMerge: true},
 		{Number: 1, AutoMerge: true},
 		{Number: 2, AutoMerge: true},
 		{Number: 3, AutoMerge: true},
 		{Number: 6, AutoMerge: true},
+		{Number: 7, AutoMerge: true},
 	})
 	t.SetStyle(table.StyleRounded)
 	return t, nil
@@ -139,6 +146,19 @@ func calculateTotalWorkTime(rs []Roudo) time.Duration {
 				continue
 			}
 			total -= b.EndAt.Sub(b.StartAt)
+		}
+	}
+	return total
+}
+
+func calculateTotalBreakTime(rs []Roudo) time.Duration {
+	var total time.Duration
+	for _, r := range rs {
+		for _, b := range r.Breaks {
+			if b.EndAt == nil {
+				continue
+			}
+			total += b.EndAt.Sub(b.StartAt)
 		}
 	}
 	return total
