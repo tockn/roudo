@@ -40,6 +40,32 @@ type roudoReportForView []struct {
 	Roudos []Roudo
 }
 
+type flattenRoudoReportForView struct {
+	Date  Date
+	Roudo Roudo
+	Break *Break
+}
+
+func (r roudoReportForView) Flatten() []flattenRoudoReportForView {
+	flattenRoudos := make([]flattenRoudoReportForView, 0)
+	for _, report := range r {
+		if len(report.Roudos) == 0 {
+			flattenRoudos = append(flattenRoudos, flattenRoudoReportForView{report.Date, Roudo{}, nil})
+		}
+		for _, roudo := range report.Roudos {
+			if len(roudo.Breaks) == 0 {
+				flattenRoudos = append(flattenRoudos, flattenRoudoReportForView{report.Date, roudo, nil})
+			}
+
+			for _, b := range roudo.Breaks {
+				b := b
+				flattenRoudos = append(flattenRoudos, flattenRoudoReportForView{report.Date, roudo, &b})
+			}
+		}
+	}
+	return flattenRoudos
+}
+
 func getMonthStartEnd(yearMonth string) (time.Time, time.Time, error) {
 	monthStart, err := time.Parse("2006-01", yearMonth)
 	if err != nil {
