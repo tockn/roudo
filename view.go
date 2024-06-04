@@ -22,32 +22,41 @@ func NewViewer(db *buntdb.DB) *Viewer {
 }
 
 func (v *Viewer) RenderCli(yearMonth string) error {
-	rsByDate, err := v.listReports(yearMonth)
+	reports, err := v.listReports(yearMonth)
 	if err != nil {
 		return err
 	}
-	t, err := buildTableWriter(rsByDate)
-	if err != nil {
-		return err
-	}
-	t.Render()
+	return renderTui(yearMonth, reports)
+	//t, err := buildTableWriter(reports)
+	//if err != nil {
+	//	return err
+	//}
+	//t.Render()
 	return nil
 }
 
-type roudoRepots []struct {
+type roudoReportForView []struct {
 	Date   Date
 	Roudos []Roudo
 }
 
-func (v *Viewer) listReports(yearMonth string) (roudoRepots, error) {
+func getMonthStartEnd(yearMonth string) (time.Time, time.Time, error) {
 	monthStart, err := time.Parse("2006-01", yearMonth)
 	if err != nil {
-		return nil, fmt.Errorf("月の指定が不正です ex: 2024-03")
+		return time.Time{}, time.Time{}, fmt.Errorf("月の指定が不正です ex: 2024-03")
 	}
 	monthEnd := monthStart.AddDate(0, 1, 0).AddDate(0, 0, -1)
+	return monthStart, monthEnd, nil
+}
+
+func (v *Viewer) listReports(yearMonth string) (roudoReportForView, error) {
+	monthStart, monthEnd, err := getMonthStartEnd(yearMonth)
+	if err != nil {
+		return nil, err
+	}
 
 	rsByDate := make(map[Date][]Roudo)
-	for d := monthStart; d.Before(monthEnd); d = d.AddDate(0, 0, 1) {
+	for d := monthStart; !d.After(monthEnd); d = d.AddDate(0, 0, 1) {
 		date := Date(d.Format("2006-01-02"))
 		rs, err := v.repo.GetRoudoReport(date)
 		if err != nil {
@@ -56,8 +65,8 @@ func (v *Viewer) listReports(yearMonth string) (roudoRepots, error) {
 		rsByDate[date] = rs
 	}
 
-	var reports roudoRepots
-	for d := monthStart; d.Before(monthEnd); d = d.AddDate(0, 0, 1) {
+	var reports roudoReportForView
+	for d := monthStart; !d.After(monthEnd); d = d.AddDate(0, 0, 1) {
 		date := Date(d.Format("2006-01-02"))
 		reports = append(reports, struct {
 			Date   Date
@@ -68,7 +77,7 @@ func (v *Viewer) listReports(yearMonth string) (roudoRepots, error) {
 	return reports, nil
 }
 
-func buildTableWriter(reports roudoRepots) (table.Writer, error) {
+func buildTableWriter(reports roudoReportForView) (table.Writer, error) {
 	t := table.NewWriter()
 	t.SetOutputMirror(os.Stdout)
 	t.AppendHeader(table.Row{"日付", "労働開始", "労働終了", "休憩開始", "休憩終了", "休憩時間", "労働時間"})
