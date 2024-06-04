@@ -26,7 +26,12 @@ func (v *Viewer) RenderCli(yearMonth string) error {
 	if err != nil {
 		return err
 	}
-	return renderTui(yearMonth, reports)
+
+	t := TUI{
+		repo: v.repo,
+		db:   v.db,
+	}
+	return t.Render(yearMonth, reports)
 	//t, err := buildTableWriter(reports)
 	//if err != nil {
 	//	return err

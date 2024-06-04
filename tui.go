@@ -5,13 +5,23 @@ import (
 	"math"
 	"time"
 
+	"github.com/tidwall/buntdb"
+
 	"github.com/gdamore/tcell/v2"
 
 	"github.com/rivo/tview"
 )
 
-func renderTui(yearMonth string, reports roudoReportForView) error {
-	app := tview.NewApplication()
+type TUI struct {
+	repo RoudoReportRepository
+	db   *buntdb.DB
+
+	app  *tview.Application
+	root *tview.Flex
+}
+
+func (tui *TUI) Render(yearMonth string, reports roudoReportForView) error {
+	tui.app = tview.NewApplication()
 
 	table, err := newRoudoReportTable(reports)
 	if err != nil {
@@ -29,14 +39,14 @@ func renderTui(yearMonth string, reports roudoReportForView) error {
 		switch column {
 		case 1:
 			r := reports.Flatten()[row-1]
-			form, err := newWorkingForm(r, func(form *tview.Form) func() {
+			form, err := tui.newWorkingForm(r, func(form *tview.Form) func() {
 				return func() {
-					app.SetFocus(table)
+					tui.app.SetFocus(table)
 					flex.RemoveItem(form)
 				}
 			}, func(form *tview.Form) func() {
 				return func() {
-					app.SetFocus(table)
+					tui.app.SetFocus(table)
 					flex.RemoveItem(form)
 				}
 			})
@@ -44,17 +54,17 @@ func renderTui(yearMonth string, reports roudoReportForView) error {
 				panic(err)
 			}
 			flex.AddItem(form, 0, 1, true)
-			app.SetFocus(form)
+			tui.app.SetFocus(form)
 		case 2:
 			r := reports.Flatten()[row-1]
 			form, err := newBreakingForm(r, func(form *tview.Form) func() {
 				return func() {
-					app.SetFocus(table)
+					tui.app.SetFocus(table)
 					flex.RemoveItem(form)
 				}
 			}, func(form *tview.Form) func() {
 				return func() {
-					app.SetFocus(table)
+					tui.app.SetFocus(table)
 					flex.RemoveItem(form)
 				}
 			})
@@ -62,11 +72,15 @@ func renderTui(yearMonth string, reports roudoReportForView) error {
 				panic(err)
 			}
 			flex.AddItem(form, 0, 1, true)
-			app.SetFocus(form)
+			tui.app.SetFocus(form)
 		}
 	})
 
-	return app.SetRoot(flex, true).Run()
+	tui.root = tview.NewFlex().
+		SetDirection(tview.FlexRow).
+		AddItem(tview.NewTextView().SetText(fmt.Sprintf("%sの勤怠", yearMonth)), 1, 1, false).
+		AddItem(flex, 0, 1, true)
+	return tui.app.SetRoot(tui.root, true).Run()
 }
 
 func newRoudoReportTable(reports roudoReportForView) (*tview.Table, error) {
@@ -100,20 +114,37 @@ func newRoudoReportTable(reports roudoReportForView) (*tview.Table, error) {
 	return table, nil
 }
 
-func newWorkingForm(r flattenRoudoReportForView, handleSave, handleCancel func(form *tview.Form) func()) (*tview.Form, error) {
-	startAtDefault := ""
+func (tui *TUI) newWorkingForm(r flattenRoudoReportForView, handleSave, handleCancel func(form *tview.Form) func()) (*tview.Form, error) {
+	startAt := ""
 	if r.Roudo.StartAt != nil {
-		startAtDefault = timeToString(r.Roudo.StartAt)
+		startAt = timeToString(r.Roudo.StartAt)
 	}
-	endAtDefault := ""
+	endAt := ""
 	if r.Roudo.EndAt != nil {
-		endAtDefault = timeToString(r.Roudo.EndAt)
+		endAt = timeToString(r.Roudo.EndAt)
 	}
 	form := tview.NewForm().
-		AddInputField("出勤時刻(HH:mm)", startAtDefault, 0, nil, nil).
-		AddInputField("退勤時刻(HH:mm)", endAtDefault, 0, nil, nil)
-	form.AddButton("保存", handleSave(form)).
-		AddButton("キャンセル", handleCancel(form))
+		AddInputField("出勤時刻(HH:mm)", startAt, 0, nil, func(text string) {
+			startAt = text
+		}).
+		AddInputField("退勤時刻(HH:mm)", endAt, 0, nil, func(text string) {
+			endAt = text
+		}).
+		AddTextView("", "", 0, 0, false, false)
+	form.
+		AddButton("保存", func() {
+			_, err := time.Parse("15:04", startAt)
+			if err != nil {
+				form.GetFormItem(2).(*tview.TextView).
+					SetLabel("エラー").
+					SetText("出勤時刻の形式が不正です")
+				return
+			}
+			handleSave(form)()
+		}).
+		AddButton("キャンセル", func() {
+			handleCancel(form)()
+		})
 	form.SetBorder(true).SetTitle("勤怠入力（出退勤）").SetTitleAlign(tview.AlignLeft)
 	return form, nil
 }
@@ -155,12 +186,6 @@ func dateToCell(d Date) (*tview.TableCell, error) {
 	return tview.NewTableCell(s).SetTextColor(color).SetAlign(tview.AlignCenter), nil
 }
 
-func newPrimitive(text string) *tview.TextView {
-	return tview.NewTextView().
-		SetTextAlign(tview.AlignCenter).
-		SetText(text)
-}
-
 const emptyTimeStr = "--:--"
 
 func newEmptyTimeCell() *tview.TableCell {
@@ -170,48 +195,6 @@ func newEmptyTimeCell() *tview.TableCell {
 func newTimeCell(startAt, endAt *time.Time) *tview.TableCell {
 	return tview.NewTableCell(fmt.Sprintf("  %s ~ %s  ", timeToString(startAt), timeToString(endAt))).SetAlign(tview.AlignCenter)
 }
-
-//func buildWorkingTime(rs []Roudo) (tview.Primitive, int) {
-//	if len(rs) == 0 {
-//		return newPrimitive(fmt.Sprintf("%s ~ %s", emptyTimeStr, emptyTimeStr)), 1
-//	}
-//
-//	s := ""
-//	for _, r := range rs {
-//		startAt := emptyTimeStr
-//		if r.StartAt != nil {
-//			startAt = timeToString(*r.StartAt)
-//		}
-//		endAt := emptyTimeStr
-//		if r.EndAt != nil {
-//			endAt = timeToString(*r.EndAt)
-//		}
-//		s += fmt.Sprintf("%s ~ %s\n", startAt, endAt)
-//	}
-//
-//	return newPrimitive(s), len(rs)
-//}
-//
-//func buildBreakingTimePrimitive(rs []Roudo) (tview.Primitive, int) {
-//	s := ""
-//	row := 0
-//	for _, r := range rs {
-//		for _, b := range r.Breaks {
-//			row++
-//			startAt := timeToString(b.StartAt)
-//			endAt := emptyTimeStr
-//			if b.EndAt != nil {
-//				endAt = timeToString(*b.EndAt)
-//			}
-//			s += fmt.Sprintf("%s ~ %s\n", startAt, endAt)
-//		}
-//	}
-//	if row == 0 {
-//		return newPrimitive(fmt.Sprintf("%s ~ %s", emptyTimeStr, emptyTimeStr)), 1
-//	}
-//
-//	return newPrimitive(s), row
-//}
 
 func timeToString(t *time.Time) string {
 	if t == nil {
