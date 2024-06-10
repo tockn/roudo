@@ -1,4 +1,4 @@
-package main
+package roudo
 
 type RoudoState string
 

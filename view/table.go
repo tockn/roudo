@@ -1,68 +1,51 @@
-package main
+package view
 
 import (
 	"fmt"
 	"os"
+	"roudo/roudo"
 	"time"
 
 	"github.com/jedib0t/go-pretty/v6/table"
-	"github.com/tidwall/buntdb"
 )
 
-type Viewer struct {
-	db   *buntdb.DB
-	repo RoudoReportRepository
+type tableViewer struct {
+	repo ViewRepository
 }
 
-func NewViewer(db *buntdb.DB) *Viewer {
-	return &Viewer{
-		db:   db,
-		repo: NewRoudoReportRepository(db),
-	}
+func NewTableViewer(repo ViewRepository) Viewer {
+	return &tableViewer{repo: repo}
 }
 
-func (v *Viewer) RenderCli(yearMonth string) error {
-	rsByDate, err := v.listReports(yearMonth)
+func (t *tableViewer) Do(yearMonth string) error {
+	reports, err := t.repo.ListReports(yearMonth)
 	if err != nil {
 		return err
 	}
-	t, err := buildTableWriter(rsByDate)
+
+	tb, err := buildTableWriter(reports)
 	if err != nil {
 		return err
 	}
-	t.Render()
+	tb.Render()
 	return nil
 }
 
-func (v *Viewer) listReports(yearMonth string) (map[Date][]Roudo, error) {
-	monthStart, err := time.Parse("2006-01", yearMonth)
-	if err != nil {
-		return nil, fmt.Errorf("月の指定が不正です ex: 2024-03")
-	}
-	monthEnd := monthStart.AddDate(0, 1, 0).AddDate(0, 0, -1)
-
-	rsByDate := make(map[Date][]Roudo, 0)
-	for d := monthStart; d.Before(monthEnd); d = d.AddDate(0, 0, 1) {
-		date := Date(d.Format("2006-01-02"))
-		rs, err := v.repo.GetRoudoReport(date)
-		if err != nil {
-			return nil, err
-		}
-		rsByDate[date] = rs
-	}
-	return rsByDate, nil
-}
-
-func buildTableWriter(rsByDate map[Date][]Roudo) (table.Writer, error) {
+func buildTableWriter(reports roudoReportForView) (table.Writer, error) {
 	t := table.NewWriter()
 	t.SetOutputMirror(os.Stdout)
-	t.AppendHeader(table.Row{"日付", "労働開始", "労働終了", "休憩開始", "休憩終了", "総労働時間"})
+	t.AppendHeader(table.Row{"日付", "労働開始", "労働終了", "休憩開始", "休憩終了", "休憩時間", "労働時間"})
 
-	totalSum := time.Duration(0)
-	for date, rs := range rsByDate {
-		total := calculateTotalWorkTime(rs)
-		totalSum += total
-		totalStr := durationToString(total)
+	totalWorkingTimeSum := time.Duration(0)
+	for _, rp := range reports {
+		date := rp.Date
+		rs := rp.Roudos
+		totalWorkingTime := calculateTotalWorkTime(rs)
+		totalWorkingTimeSum += totalWorkingTime
+		totalWorkingTimeStr := durationToString(totalWorkingTime)
+		totalBreakTime := calculateTotalBreakTime(rs)
+		totalBreakTimeStr := durationToString(totalBreakTime)
+
 		if len(rs) == 0 {
 			t.AppendRow(table.Row{
 				date,
@@ -70,7 +53,8 @@ func buildTableWriter(rsByDate map[Date][]Roudo) (table.Writer, error) {
 				"",
 				"",
 				"",
-				totalStr,
+				totalBreakTimeStr,
+				totalWorkingTimeStr,
 			})
 			continue
 		}
@@ -82,7 +66,8 @@ func buildTableWriter(rsByDate map[Date][]Roudo) (table.Writer, error) {
 					ptrTimeToString(r.EndAt),
 					"",
 					"",
-					totalStr,
+					totalBreakTimeStr,
+					totalWorkingTimeStr,
 				})
 			} else {
 				for _, b := range r.Breaks {
@@ -92,25 +77,27 @@ func buildTableWriter(rsByDate map[Date][]Roudo) (table.Writer, error) {
 						ptrTimeToString(r.EndAt),
 						b.StartAt.Format("15:04"),
 						ptrTimeToString(b.EndAt),
-						totalStr,
+						totalBreakTimeStr,
+						totalWorkingTimeStr,
 					})
 				}
 			}
 		}
 	}
-	t.AppendFooter(table.Row{"", "", "", "", "総労働時間", durationToString(totalSum)})
+	t.AppendFooter(table.Row{"", "", "", "", "総労働時間", durationToString(totalWorkingTimeSum)})
 	t.SetColumnConfigs([]table.ColumnConfig{
 		{Number: 0, AutoMerge: true},
 		{Number: 1, AutoMerge: true},
 		{Number: 2, AutoMerge: true},
 		{Number: 3, AutoMerge: true},
 		{Number: 6, AutoMerge: true},
+		{Number: 7, AutoMerge: true},
 	})
 	t.SetStyle(table.StyleRounded)
 	return t, nil
 }
 
-func calculateTotalWorkTime(rs []Roudo) time.Duration {
+func calculateTotalWorkTime(rs []roudo.Roudo) time.Duration {
 	var total time.Duration
 	for _, r := range rs {
 		if r.EndAt == nil {
@@ -122,6 +109,19 @@ func calculateTotalWorkTime(rs []Roudo) time.Duration {
 				continue
 			}
 			total -= b.EndAt.Sub(b.StartAt)
+		}
+	}
+	return total
+}
+
+func calculateTotalBreakTime(rs []roudo.Roudo) time.Duration {
+	var total time.Duration
+	for _, r := range rs {
+		for _, b := range r.Breaks {
+			if b.EndAt == nil {
+				continue
+			}
+			total += b.EndAt.Sub(b.StartAt)
 		}
 	}
 	return total

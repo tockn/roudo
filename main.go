@@ -4,8 +4,12 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"roudo/roudo"
 	"roudo/roudo_event"
+	"roudo/view"
 	"time"
+
+	"github.com/alexflint/go-filemutex"
 
 	"github.com/tidwall/buntdb"
 
@@ -50,19 +54,15 @@ var kansiCommand = &cli.Command{
 		}
 		defer logFile.Close()
 
-		logger := slog.New(
-			slog.NewJSONHandler(logFile, &slog.HandlerOptions{
-				Level: slog.LevelWarn,
-			}),
-		)
+		logger := newLogger()
+		no := &roudo.MacNotificator{}
 
-		no := &MacNotificator{}
-
-		repo := NewRoudoReportRepository(db)
-		reporter := NewRoudoReporter(repo, logger, no)
+		repo := roudo.NewRoudoReportRepository(db)
+		fm := newFileMutex()
+		reporter := roudo.NewRoudoReporter(repo, logger, no, fm)
 
 		ws := roudo_event.NewAllWatchers(logger)
-		mgr := NewRoudoManager(reporter, ws, logger, 1*time.Second)
+		mgr := roudo.NewRoudoManager(reporter, ws, logger, 1*time.Second)
 
 		return mgr.Kansi()
 	},
@@ -78,8 +78,16 @@ var viewCommand = &cli.Command{
 		}
 		defer db.Close()
 
-		viewer := NewViewer(db)
-		return viewer.RenderCli(c.Args().First())
+		logger := newLogger()
+		no := &roudo.MacNotificator{}
+		repo := roudo.NewRoudoReportRepository(db)
+		fm := newFileMutex()
+		reporter := roudo.NewRoudoReporter(repo, logger, no, fm)
+
+		viewRepo := view.NewViewRepository(repo)
+		v := view.NewTUI(reporter, viewRepo, logger)
+
+		return v.Do(c.Args().First())
 	},
 }
 
@@ -94,6 +102,27 @@ func initDB() (*buntdb.DB, error) {
 		return nil, err
 	}
 	return db, nil
+}
+
+func newLogger() *slog.Logger {
+	return slog.New(
+		slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+			Level: slog.LevelDebug,
+		}),
+	)
+}
+
+func newFileMutex() *filemutex.FileMutex {
+	dir, err := getRoudoDir()
+	if err != nil {
+		panic(err)
+	}
+
+	mux, err := filemutex.New(filepath.Join(dir, "roudo.lock"))
+	if err != nil {
+		panic(err)
+	}
+	return mux
 }
 
 func getRoudoDir() (string, error) {
