@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"time"
 
@@ -10,14 +11,18 @@ import (
 )
 
 type Viewer struct {
-	db   *buntdb.DB
-	repo RoudoReportRepository
+	db            *buntdb.DB
+	repo          RoudoReportRepository
+	logger        *slog.Logger
+	roudoReporter RoudoReporter
 }
 
-func NewViewer(db *buntdb.DB) *Viewer {
+func NewViewer(db *buntdb.DB, logger *slog.Logger, reporter RoudoReporter) *Viewer {
 	return &Viewer{
-		db:   db,
-		repo: NewRoudoReportRepository(db),
+		db:            db,
+		repo:          NewRoudoReportRepository(db),
+		logger:        logger,
+		roudoReporter: reporter,
 	}
 }
 
@@ -28,8 +33,8 @@ func (v *Viewer) RenderCli(yearMonth string) error {
 	}
 
 	t := TUI{
-		repo: v.repo,
-		db:   v.db,
+		logger:        v.logger,
+		roudoReporter: v.roudoReporter,
 	}
 	return t.Render(yearMonth, reports)
 	//t, err := buildTableWriter(reports)
@@ -46,25 +51,36 @@ type roudoReportForView []struct {
 }
 
 type flattenRoudoReportForView struct {
-	Date  Date
-	Roudo Roudo
-	Break *Break
+	Date       Date
+	Roudo      Roudo
+	RoudoIndex int
+	Break      *Break
+	BreakIndex int
+}
+
+func (r roudoReportForView) FindByDate(date Date) []Roudo {
+	for _, report := range r {
+		if report.Date == date {
+			return report.Roudos
+		}
+	}
+	return nil
 }
 
 func (r roudoReportForView) Flatten() []flattenRoudoReportForView {
 	flattenRoudos := make([]flattenRoudoReportForView, 0)
 	for _, report := range r {
 		if len(report.Roudos) == 0 {
-			flattenRoudos = append(flattenRoudos, flattenRoudoReportForView{report.Date, Roudo{}, nil})
+			flattenRoudos = append(flattenRoudos, flattenRoudoReportForView{report.Date, Roudo{}, 0, nil, 0})
 		}
-		for _, roudo := range report.Roudos {
+		for roudoIndex, roudo := range report.Roudos {
 			if len(roudo.Breaks) == 0 {
-				flattenRoudos = append(flattenRoudos, flattenRoudoReportForView{report.Date, roudo, nil})
+				flattenRoudos = append(flattenRoudos, flattenRoudoReportForView{report.Date, roudo, roudoIndex, nil, 0})
 			}
 
-			for _, b := range roudo.Breaks {
+			for breakIndex, b := range roudo.Breaks {
 				b := b
-				flattenRoudos = append(flattenRoudos, flattenRoudoReportForView{report.Date, roudo, &b})
+				flattenRoudos = append(flattenRoudos, flattenRoudoReportForView{report.Date, roudo, roudoIndex, &b, breakIndex})
 			}
 		}
 	}

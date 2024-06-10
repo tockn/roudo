@@ -3,19 +3,21 @@ package main
 import (
 	"fmt"
 	"log/slog"
-	"sync"
 	"time"
+
+	"github.com/alexflint/go-filemutex"
 )
 
 type RoudoReporter interface {
 	HandleRoudoEvent() error
 	Kansi() error
+	SaveRoudoReport(date Date, rs []Roudo) error
 }
 
-func NewRoudoReporter(repo RoudoReportRepository, logger *slog.Logger, notificator Notificator) RoudoReporter {
+func NewRoudoReporter(repo RoudoReportRepository, logger *slog.Logger, notificator Notificator, fm *filemutex.FileMutex) RoudoReporter {
 	return &roudoReport{
 		repo:                  repo,
-		mux:                   sync.Mutex{},
+		mux:                   fm,
 		notificator:           notificator,
 		shiftDuration:         5 * time.Hour,
 		startBreakInterval:    35 * time.Minute,
@@ -26,7 +28,7 @@ func NewRoudoReporter(repo RoudoReportRepository, logger *slog.Logger, notificat
 
 type roudoReport struct {
 	repo                  RoudoReportRepository
-	mux                   sync.Mutex
+	mux                   *filemutex.FileMutex
 	notificator           Notificator
 	shiftDuration         time.Duration
 	startBreakInterval    time.Duration
@@ -80,6 +82,13 @@ func (r *roudoReport) Kansi() error {
 	}
 
 	return nil
+}
+
+func (r *roudoReport) SaveRoudoReport(date Date, rs []Roudo) error {
+	r.mux.Lock()
+	defer r.mux.Unlock()
+
+	return r.repo.SaveRoudoReport(date, rs)
 }
 
 func (r *roudoReport) kansiWorking(now RoudoTime) error {

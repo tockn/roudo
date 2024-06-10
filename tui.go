@@ -2,10 +2,9 @@ package main
 
 import (
 	"fmt"
+	"log/slog"
 	"math"
 	"time"
-
-	"github.com/tidwall/buntdb"
 
 	"github.com/gdamore/tcell/v2"
 
@@ -13,11 +12,12 @@ import (
 )
 
 type TUI struct {
-	repo RoudoReportRepository
-	db   *buntdb.DB
+	roudoReporter RoudoReporter
 
 	app  *tview.Application
 	root *tview.Flex
+
+	logger *slog.Logger
 }
 
 func (tui *TUI) Render(yearMonth string, reports roudoReportForView) error {
@@ -31,6 +31,7 @@ func (tui *TUI) Render(yearMonth string, reports roudoReportForView) error {
 		SetDirection(tview.FlexColumn).
 		AddItem(table, 0, 1, true)
 
+	rowOffset := 1
 	table.Select(0, 0).SetFixed(1, 1).SetDoneFunc(func(key tcell.Key) {
 		if key == tcell.KeyEnter {
 			table.SetSelectable(true, true)
@@ -38,11 +39,27 @@ func (tui *TUI) Render(yearMonth string, reports roudoReportForView) error {
 	}).SetSelectedFunc(func(row int, column int) {
 		switch column {
 		case 1:
-			r := reports.Flatten()[row-1]
-			form, err := tui.newWorkingForm(r, func(form *tview.Form) func() {
+			r := reports.Flatten()[row-rowOffset]
+			form, err := tui.newWorkingForm(r, func(form *tview.Form, startAt, endAt *time.Time) func() {
 				return func() {
-					tui.app.SetFocus(table)
-					flex.RemoveItem(form)
+					defer func() {
+						tui.app.SetFocus(table)
+						flex.RemoveItem(form)
+					}()
+
+					currentReport := reports.FindByDate(r.Date)
+					if startAt == nil {
+						currentReport = append(currentReport[:r.RoudoIndex], currentReport[r.RoudoIndex+1:]...)
+						if err := tui.roudoReporter.SaveRoudoReport(r.Date, currentReport); err != nil {
+							tui.logger.Error("failed to save roudo report: ", err)
+						}
+					} else {
+						currentReport[r.RoudoIndex].StartAt = startAt
+						currentReport[r.RoudoIndex].EndAt = endAt
+						if err := tui.roudoReporter.SaveRoudoReport(r.Date, currentReport); err != nil {
+							tui.logger.Error("failed to save roudo report: ", err)
+						}
+					}
 				}
 			}, func(form *tview.Form) func() {
 				return func() {
@@ -56,11 +73,27 @@ func (tui *TUI) Render(yearMonth string, reports roudoReportForView) error {
 			flex.AddItem(form, 0, 1, true)
 			tui.app.SetFocus(form)
 		case 2:
-			r := reports.Flatten()[row-1]
-			form, err := newBreakingForm(r, func(form *tview.Form) func() {
+			r := reports.Flatten()[row-rowOffset]
+			form, err := newBreakingForm(r, func(form *tview.Form, startAt, endAt *time.Time) func() {
 				return func() {
-					tui.app.SetFocus(table)
-					flex.RemoveItem(form)
+					defer func() {
+						tui.app.SetFocus(table)
+						flex.RemoveItem(form)
+					}()
+
+					currentReport := reports.FindByDate(r.Date)
+					if startAt == nil {
+						currentReport[r.RoudoIndex].Breaks = append(currentReport[r.RoudoIndex].Breaks[:r.BreakIndex], currentReport[r.RoudoIndex].Breaks[r.BreakIndex+1:]...)
+						if err := tui.roudoReporter.SaveRoudoReport(r.Date, currentReport); err != nil {
+							tui.logger.Error("failed to save roudo report: ", err)
+						}
+					} else {
+						currentReport[r.RoudoIndex].Breaks[r.BreakIndex].StartAt = *startAt
+						currentReport[r.RoudoIndex].Breaks[r.BreakIndex].EndAt = endAt
+						if err := tui.roudoReporter.SaveRoudoReport(r.Date, currentReport); err != nil {
+							tui.logger.Error("failed to save roudo report: ", err)
+						}
+					}
 				}
 			}, func(form *tview.Form) func() {
 				return func() {
@@ -114,7 +147,7 @@ func newRoudoReportTable(reports roudoReportForView) (*tview.Table, error) {
 	return table, nil
 }
 
-func (tui *TUI) newWorkingForm(r flattenRoudoReportForView, handleSave, handleCancel func(form *tview.Form) func()) (*tview.Form, error) {
+func (tui *TUI) newWorkingForm(r flattenRoudoReportForView, handleSave func(form *tview.Form, startAt, endAt *time.Time) func(), handleCancel func(form *tview.Form) func()) (*tview.Form, error) {
 	startAt := ""
 	if r.Roudo.StartAt != nil {
 		startAt = timeToString(r.Roudo.StartAt)
@@ -133,14 +166,28 @@ func (tui *TUI) newWorkingForm(r flattenRoudoReportForView, handleSave, handleCa
 		AddTextView("", "", 0, 0, false, false)
 	form.
 		AddButton("保存", func() {
-			_, err := time.Parse("15:04", startAt)
-			if err != nil {
-				form.GetFormItem(2).(*tview.TextView).
-					SetLabel("エラー").
-					SetText("出勤時刻の形式が不正です")
-				return
+			var s, e *time.Time
+			if startAt != "" {
+				ps, err := time.Parse("15:04", startAt)
+				if err != nil {
+					form.GetFormItem(2).(*tview.TextView).
+						SetLabel("エラー").
+						SetText("出勤時刻の形式が不正です")
+					return
+				}
+				s = &ps
 			}
-			handleSave(form)()
+			if endAt != "" {
+				pe, err := time.Parse("15:04", endAt)
+				if err != nil {
+					form.GetFormItem(2).(*tview.TextView).
+						SetLabel("エラー").
+						SetText("退勤時刻の形式が不正です")
+					return
+				}
+				e = &pe
+			}
+			handleSave(form, s, e)()
 		}).
 		AddButton("キャンセル", func() {
 			handleCancel(form)()
@@ -149,19 +196,46 @@ func (tui *TUI) newWorkingForm(r flattenRoudoReportForView, handleSave, handleCa
 	return form, nil
 }
 
-func newBreakingForm(r flattenRoudoReportForView, handleSave, handleCancel func(form *tview.Form) func()) (*tview.Form, error) {
-	startAtDefault := ""
+func newBreakingForm(r flattenRoudoReportForView, handleSave func(form *tview.Form, startAt, endAt *time.Time) func(), handleCancel func(form *tview.Form) func()) (*tview.Form, error) {
+	startAt := ""
 	if r.Break != nil {
-		startAtDefault = timeToString(&r.Break.StartAt)
+		startAt = timeToString(&r.Break.StartAt)
 	}
-	endAtDefault := ""
+	endAt := ""
 	if r.Break != nil && r.Break.EndAt != nil {
-		endAtDefault = timeToString(r.Break.EndAt)
+		endAt = timeToString(r.Break.EndAt)
 	}
 	form := tview.NewForm().
-		AddInputField("休憩開始時刻(HH:mm)", startAtDefault, 0, nil, nil).
-		AddInputField("休憩終了時刻(HH:mm)", endAtDefault, 0, nil, nil)
-	form.AddButton("保存", handleSave(form)).
+		AddInputField("休憩開始時刻(HH:mm)", startAt, 0, nil, func(text string) {
+			startAt = text
+		}).
+		AddInputField("休憩終了時刻(HH:mm)", endAt, 0, nil, func(text string) {
+			endAt = text
+		})
+	form.AddButton("保存", func() {
+		var s, e *time.Time
+		if startAt != "" {
+			ps, err := time.Parse("15:04", startAt)
+			if err != nil {
+				form.GetFormItem(2).(*tview.TextView).
+					SetLabel("エラー").
+					SetText("休憩開始時刻の形式が不正です")
+				return
+			}
+			s = &ps
+		}
+		if endAt != "" {
+			pe, err := time.Parse("15:04", endAt)
+			if err != nil {
+				form.GetFormItem(2).(*tview.TextView).
+					SetLabel("エラー").
+					SetText("休憩終了時刻の形式が不正です")
+				return
+			}
+			e = &pe
+		}
+		handleSave(form, s, e)()
+	}).
 		AddButton("キャンセル", handleCancel(form))
 	form.SetBorder(true).SetTitle("勤怠入力（休憩）").SetTitleAlign(tview.AlignLeft)
 	return form, nil

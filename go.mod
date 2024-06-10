@@ -11,6 +11,7 @@ require (
 )
 
 require (
+	github.com/alexflint/go-filemutex v1.3.0 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.4 // indirect
 	github.com/gdamore/encoding v1.0.0 // indirect
 	github.com/gdamore/tcell/v2 v2.7.1 // indirect
