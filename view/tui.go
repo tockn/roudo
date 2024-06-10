@@ -1,9 +1,10 @@
-package main
+package view
 
 import (
 	"fmt"
 	"log/slog"
 	"math"
+	"roudo/roudo"
 	"time"
 
 	"github.com/gdamore/tcell/v2"
@@ -11,17 +12,35 @@ import (
 	"github.com/rivo/tview"
 )
 
-type TUI struct {
-	roudoReporter RoudoReporter
+func NewTUI(roudoReporter roudo.RoudoReporter, repo ViewRepository, logger *slog.Logger) Viewer {
+	return &tui{
+		roudoReporter: roudoReporter,
+		repo:          repo,
+		logger:        logger,
+	}
+}
+
+type tui struct {
+	roudoReporter roudo.RoudoReporter
+	repo          ViewRepository
+
+	logger *slog.Logger
 
 	app  *tview.Application
 	root *tview.Flex
-
-	logger *slog.Logger
 }
 
-func (tui *TUI) Render(yearMonth string, reports roudoReportForView) error {
-	tui.app = tview.NewApplication()
+func (t *tui) Do(yearMonth string) error {
+	reports, err := t.repo.ListReports(yearMonth)
+	if err != nil {
+		return err
+	}
+
+	if t.app != nil {
+		t.app.Stop()
+	}
+
+	t.app = tview.NewApplication()
 
 	table, err := newRoudoReportTable(reports)
 	if err != nil {
@@ -40,30 +59,29 @@ func (tui *TUI) Render(yearMonth string, reports roudoReportForView) error {
 		switch column {
 		case 1:
 			r := reports.Flatten()[row-rowOffset]
-			form, err := tui.newWorkingForm(r, func(form *tview.Form, startAt, endAt *time.Time) func() {
+			form, err := t.newWorkingForm(r, func(form *tview.Form, startAt, endAt *time.Time) func() {
 				return func() {
 					defer func() {
-						tui.app.SetFocus(table)
-						flex.RemoveItem(form)
+						t.Do(yearMonth)
 					}()
 
 					currentReport := reports.FindByDate(r.Date)
 					if startAt == nil {
 						currentReport = append(currentReport[:r.RoudoIndex], currentReport[r.RoudoIndex+1:]...)
-						if err := tui.roudoReporter.SaveRoudoReport(r.Date, currentReport); err != nil {
-							tui.logger.Error("failed to save roudo report: ", err)
+						if err := t.roudoReporter.SaveRoudoReport(r.Date, currentReport); err != nil {
+							t.logger.Error("failed to save roudo report: ", err)
 						}
 					} else {
 						currentReport[r.RoudoIndex].StartAt = startAt
 						currentReport[r.RoudoIndex].EndAt = endAt
-						if err := tui.roudoReporter.SaveRoudoReport(r.Date, currentReport); err != nil {
-							tui.logger.Error("failed to save roudo report: ", err)
+						if err := t.roudoReporter.SaveRoudoReport(r.Date, currentReport); err != nil {
+							t.logger.Error("failed to save roudo report: ", err)
 						}
 					}
 				}
 			}, func(form *tview.Form) func() {
 				return func() {
-					tui.app.SetFocus(table)
+					t.app.SetFocus(table)
 					flex.RemoveItem(form)
 				}
 			})
@@ -71,33 +89,32 @@ func (tui *TUI) Render(yearMonth string, reports roudoReportForView) error {
 				panic(err)
 			}
 			flex.AddItem(form, 0, 1, true)
-			tui.app.SetFocus(form)
+			t.app.SetFocus(form)
 		case 2:
 			r := reports.Flatten()[row-rowOffset]
 			form, err := newBreakingForm(r, func(form *tview.Form, startAt, endAt *time.Time) func() {
 				return func() {
 					defer func() {
-						tui.app.SetFocus(table)
-						flex.RemoveItem(form)
+						t.Do(yearMonth)
 					}()
 
 					currentReport := reports.FindByDate(r.Date)
 					if startAt == nil {
 						currentReport[r.RoudoIndex].Breaks = append(currentReport[r.RoudoIndex].Breaks[:r.BreakIndex], currentReport[r.RoudoIndex].Breaks[r.BreakIndex+1:]...)
-						if err := tui.roudoReporter.SaveRoudoReport(r.Date, currentReport); err != nil {
-							tui.logger.Error("failed to save roudo report: ", err)
+						if err := t.roudoReporter.SaveRoudoReport(r.Date, currentReport); err != nil {
+							t.logger.Error("failed to save roudo report: ", err)
 						}
 					} else {
 						currentReport[r.RoudoIndex].Breaks[r.BreakIndex].StartAt = *startAt
 						currentReport[r.RoudoIndex].Breaks[r.BreakIndex].EndAt = endAt
-						if err := tui.roudoReporter.SaveRoudoReport(r.Date, currentReport); err != nil {
-							tui.logger.Error("failed to save roudo report: ", err)
+						if err := t.roudoReporter.SaveRoudoReport(r.Date, currentReport); err != nil {
+							t.logger.Error("failed to save roudo report: ", err)
 						}
 					}
 				}
 			}, func(form *tview.Form) func() {
 				return func() {
-					tui.app.SetFocus(table)
+					t.app.SetFocus(table)
 					flex.RemoveItem(form)
 				}
 			})
@@ -105,15 +122,15 @@ func (tui *TUI) Render(yearMonth string, reports roudoReportForView) error {
 				panic(err)
 			}
 			flex.AddItem(form, 0, 1, true)
-			tui.app.SetFocus(form)
+			t.app.SetFocus(form)
 		}
 	})
 
-	tui.root = tview.NewFlex().
+	t.root = tview.NewFlex().
 		SetDirection(tview.FlexRow).
 		AddItem(tview.NewTextView().SetText(fmt.Sprintf("%sの勤怠", yearMonth)), 1, 1, false).
 		AddItem(flex, 0, 1, true)
-	return tui.app.SetRoot(tui.root, true).Run()
+	return t.app.SetRoot(t.root, true).Run()
 }
 
 func newRoudoReportTable(reports roudoReportForView) (*tview.Table, error) {
@@ -147,7 +164,7 @@ func newRoudoReportTable(reports roudoReportForView) (*tview.Table, error) {
 	return table, nil
 }
 
-func (tui *TUI) newWorkingForm(r flattenRoudoReportForView, handleSave func(form *tview.Form, startAt, endAt *time.Time) func(), handleCancel func(form *tview.Form) func()) (*tview.Form, error) {
+func (t *tui) newWorkingForm(r flattenRoudoReportForView, handleSave func(form *tview.Form, startAt, endAt *time.Time) func(), handleCancel func(form *tview.Form) func()) (*tview.Form, error) {
 	startAt := ""
 	if r.Roudo.StartAt != nil {
 		startAt = timeToString(r.Roudo.StartAt)
@@ -243,7 +260,7 @@ func newBreakingForm(r flattenRoudoReportForView, handleSave func(form *tview.Fo
 
 var week = []string{"日", "月", "火", "水", "木", "金", "土"}
 
-func dateToCell(d Date) (*tview.TableCell, error) {
+func dateToCell(d roudo.Date) (*tview.TableCell, error) {
 	t, err := time.Parse("2006-01-02", string(d))
 	if err != nil {
 		return nil, err

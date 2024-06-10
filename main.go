@@ -4,7 +4,9 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"roudo/roudo"
 	"roudo/roudo_event"
+	"roudo/view"
 	"time"
 
 	"github.com/alexflint/go-filemutex"
@@ -53,14 +55,14 @@ var kansiCommand = &cli.Command{
 		defer logFile.Close()
 
 		logger := newLogger()
-		no := &MacNotificator{}
+		no := &roudo.MacNotificator{}
 
-		repo := NewRoudoReportRepository(db)
+		repo := roudo.NewRoudoReportRepository(db)
 		fm := newFileMutex()
-		reporter := NewRoudoReporter(repo, logger, no, fm)
+		reporter := roudo.NewRoudoReporter(repo, logger, no, fm)
 
 		ws := roudo_event.NewAllWatchers(logger)
-		mgr := NewRoudoManager(reporter, ws, logger, 1*time.Second)
+		mgr := roudo.NewRoudoManager(reporter, ws, logger, 1*time.Second)
 
 		return mgr.Kansi()
 	},
@@ -77,12 +79,15 @@ var viewCommand = &cli.Command{
 		defer db.Close()
 
 		logger := newLogger()
-		no := &MacNotificator{}
-		repo := NewRoudoReportRepository(db)
+		no := &roudo.MacNotificator{}
+		repo := roudo.NewRoudoReportRepository(db)
 		fm := newFileMutex()
-		reporter := NewRoudoReporter(repo, logger, no, fm)
-		viewer := NewViewer(db, logger, reporter)
-		return viewer.RenderCli(c.Args().First())
+		reporter := roudo.NewRoudoReporter(repo, logger, no, fm)
+
+		viewRepo := view.NewViewRepository(repo)
+		v := view.NewTUI(reporter, viewRepo, logger)
+
+		return v.Do(c.Args().First())
 	},
 }
 
