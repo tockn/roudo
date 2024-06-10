@@ -67,13 +67,21 @@ func (t *tui) Do(yearMonth string) error {
 
 					currentReport := reports.FindByDate(r.Date)
 					if startAt == nil {
+						if len(currentReport) == 0 {
+							return
+						}
 						currentReport = append(currentReport[:r.RoudoIndex], currentReport[r.RoudoIndex+1:]...)
 						if err := t.roudoReporter.SaveRoudoReport(r.Date, currentReport); err != nil {
 							t.logger.Error("failed to save roudo report: ", err)
 						}
 					} else {
-						currentReport[r.RoudoIndex].StartAt = startAt
-						currentReport[r.RoudoIndex].EndAt = endAt
+						index := 0
+						if len(currentReport) <= r.RoudoIndex {
+							index = len(currentReport)
+							currentReport = append(currentReport, roudo.Roudo{})
+						}
+						currentReport[index].StartAt = startAt
+						currentReport[index].EndAt = endAt
 						if err := t.roudoReporter.SaveRoudoReport(r.Date, currentReport); err != nil {
 							t.logger.Error("failed to save roudo report: ", err)
 						}
@@ -100,13 +108,21 @@ func (t *tui) Do(yearMonth string) error {
 
 					currentReport := reports.FindByDate(r.Date)
 					if startAt == nil {
+						if len(currentReport[r.RoudoIndex].Breaks) == 0 {
+							return
+						}
 						currentReport[r.RoudoIndex].Breaks = append(currentReport[r.RoudoIndex].Breaks[:r.BreakIndex], currentReport[r.RoudoIndex].Breaks[r.BreakIndex+1:]...)
 						if err := t.roudoReporter.SaveRoudoReport(r.Date, currentReport); err != nil {
 							t.logger.Error("failed to save roudo report: ", err)
 						}
 					} else {
-						currentReport[r.RoudoIndex].Breaks[r.BreakIndex].StartAt = *startAt
-						currentReport[r.RoudoIndex].Breaks[r.BreakIndex].EndAt = endAt
+						index := 0
+						if len(currentReport[r.RoudoIndex].Breaks) <= r.BreakIndex {
+							index = len(currentReport[r.RoudoIndex].Breaks)
+							currentReport[r.RoudoIndex].Breaks = append(currentReport[r.RoudoIndex].Breaks, roudo.Break{})
+						}
+						currentReport[r.RoudoIndex].Breaks[index].StartAt = *startAt
+						currentReport[r.RoudoIndex].Breaks[index].EndAt = endAt
 						if err := t.roudoReporter.SaveRoudoReport(r.Date, currentReport); err != nil {
 							t.logger.Error("failed to save roudo report: ", err)
 						}
@@ -139,8 +155,11 @@ func newRoudoReportTable(reports roudoReportForView) (*tview.Table, error) {
 	table.SetCell(0, 0, tview.NewTableCell("日付").SetAlign(tview.AlignCenter).SetSelectable(false))
 	table.SetCell(0, 1, tview.NewTableCell("出退勤").SetAlign(tview.AlignCenter).SetSelectable(false))
 	table.SetCell(0, 2, tview.NewTableCell("休憩").SetAlign(tview.AlignCenter).SetSelectable(false))
+	table.SetCell(0, 3, tview.NewTableCell("休憩時間").SetAlign(tview.AlignCenter).SetSelectable(false))
+	table.SetCell(0, 4, tview.NewTableCell("労働時間").SetAlign(tview.AlignCenter).SetSelectable(false))
 
 	offset := 1
+	totalWorkingTime := time.Duration(0)
 	for repoIdx, report := range reports {
 		date, err := dateToCell(report.Date)
 		if err != nil {
@@ -151,7 +170,12 @@ func newRoudoReportTable(reports roudoReportForView) (*tview.Table, error) {
 		table.SetCell(repoIdx+offset, 2, newEmptyTimeCell())
 
 		maxBreakCount := 1
+		workingTime := time.Duration(0)
+		breakingTime := time.Duration(0)
 		for roudoIdx, r := range report.Roudos {
+			workingTime += r.TotalWorkingTime()
+			breakingTime += r.TotalBreakTime()
+
 			table.SetCell(repoIdx+roudoIdx+offset, 1, newTimeCell(r.StartAt, r.EndAt).SetAlign(tview.AlignCenter))
 
 			for breakIdx, b := range r.Breaks {
@@ -160,7 +184,14 @@ func newRoudoReportTable(reports roudoReportForView) (*tview.Table, error) {
 			maxBreakCount = int(math.Max(float64(maxBreakCount), float64(len(r.Breaks))))
 		}
 		offset += int(math.Max(math.Max(0, float64(len(report.Roudos)-1)), float64(maxBreakCount-1)))
+
+		table.SetCell(repoIdx+offset, 3, tview.NewTableCell(durationToString(breakingTime)).SetAlign(tview.AlignCenter).SetSelectable(false))
+		table.SetCell(repoIdx+offset, 4, tview.NewTableCell(durationToString(workingTime)).SetAlign(tview.AlignCenter).SetSelectable(false))
+		totalWorkingTime += workingTime
 	}
+
+	table.SetCell(len(reports)+offset, 3, tview.NewTableCell("総労働時間").SetAlign(tview.AlignCenter).SetSelectable(false))
+	table.SetCell(len(reports)+offset, 4, tview.NewTableCell(durationToString(totalWorkingTime)).SetAlign(tview.AlignCenter).SetSelectable(false))
 	return table, nil
 }
 
