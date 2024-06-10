@@ -52,7 +52,7 @@ var kansiCommand = &cli.Command{
 
 		logger := slog.New(
 			slog.NewJSONHandler(logFile, &slog.HandlerOptions{
-				Level: slog.LevelWarn,
+				Level: slog.LevelDebug,
 			}),
 		)
 

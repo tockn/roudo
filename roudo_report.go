@@ -91,7 +91,7 @@ func (r *roudoReport) kansiWorking(now RoudoTime) error {
 		return fmt.Errorf("current_state: working なのに lastEventAt が nil です")
 	}
 
-	// 労働中に日跨ぎした場合は、前日の労働時刻終了を日跨ぎ時刻として記録し、当日に新たに労働開始する
+	// 労働中に日跨ぎした場合は、最終イベント時刻を前日の労働終了時刻とし、労働を終了する
 	if now.IsOvernight(*lastEventAt) {
 		yesterdayReport, err := r.repo.GetRoudoReport(lastEventAt.ShiftedDate())
 		if err != nil {
@@ -101,7 +101,7 @@ func (r *roudoReport) kansiWorking(now RoudoTime) error {
 		if err := r.repo.SaveRoudoReport(lastEventAt.ShiftedDate(), yesterdayReport); err != nil {
 			return err
 		}
-		return r.startNewWorking(now)
+		return r.finishWorking(*lastEventAt)
 	}
 
 	if now.Time().After(lastEventAt.Time().Add(r.startBreakInterval)) {
@@ -120,7 +120,7 @@ func (r *roudoReport) kansiBreaking(now RoudoTime) error {
 		return fmt.Errorf("current_state: breaking なのに lastEventAt が nil です")
 	}
 
-	// 休憩時間中に日跨ぎをした場合、最終イベント時刻を前日の就業時間とし、当日に新たに労働開始する
+	// 休憩時間中に日跨ぎをした場合、最終イベント時刻を前日の労働終了時刻とし、労働を終了する
 	if now.IsOvernight(*lastEventAt) {
 		yesterdayReport, err := r.repo.GetRoudoReport(lastEventAt.ShiftedDate())
 		if err != nil {
@@ -130,7 +130,7 @@ func (r *roudoReport) kansiBreaking(now RoudoTime) error {
 		if err := r.repo.SaveRoudoReport(lastEventAt.ShiftedDate(), yesterdayReport); err != nil {
 			return err
 		}
-		return r.startNewWorking(now)
+		return r.finishWorking(*lastEventAt)
 	}
 
 	if now.Time().After(lastEventAt.Time().Add(r.finishWorkingInterval)) {
@@ -165,7 +165,11 @@ func (r *roudoReport) finishWorking(endAt RoudoTime) error {
 		return err
 	}
 	report[len(report)-1].EndAt = endAt.Time()
-	report[len(report)-1].Breaks = report[len(report)-1].Breaks[:len(report[len(report)-1].Breaks)-1]
+
+	lastBreak := report[len(report)-1].Breaks[len(report[len(report)-1].Breaks)-1]
+	if lastBreak.EndAt == nil {
+		report[len(report)-1].Breaks = report[len(report)-1].Breaks[:len(report[len(report)-1].Breaks)-1]
+	}
 	return r.repo.SaveRoudoReport(endAt.ShiftedDate(), report)
 }
 

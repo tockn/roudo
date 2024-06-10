@@ -15,7 +15,6 @@ CGPoint getMouseLocation() {
 */
 import "C"
 import (
-	"fmt"
 	"log/slog"
 	"math"
 	"time"
@@ -44,7 +43,6 @@ func (w *MouseEventWatcher) Watch(onEvent func()) error {
 		distance := lastPosition.calcDistance(currentPosition)
 		w.logger.Debug("kansi mouse event", slog.Float64("currentX", currentPosition.x), slog.Float64("currentY", currentPosition.y), slog.Float64("lastX", lastPosition.x), slog.Float64("lastY", lastPosition.y), slog.Float64("distance", distance))
 		if distance > 100 {
-			fmt.Println("Mouse moved!")
 			onEvent()
 			lastPosition = currentPosition
 		}
