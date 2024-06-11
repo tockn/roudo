@@ -44,16 +44,6 @@ var kansiCommand = &cli.Command{
 		}
 		defer db.Close()
 
-		dir, err := getRoudoDir()
-		if err != nil {
-			return err
-		}
-		logFile, err := os.OpenFile(filepath.Join(dir, "log.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
-		if err != nil {
-			panic(err)
-		}
-		defer logFile.Close()
-
 		logger := newLogger()
 		no := &roudo.MacNotificator{}
 
@@ -105,8 +95,17 @@ func initDB() (*buntdb.DB, error) {
 }
 
 func newLogger() *slog.Logger {
+	dir, err := getRoudoDir()
+	if err != nil {
+		panic(err)
+	}
+	logFile, err := os.OpenFile(filepath.Join(dir, "log.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	if err != nil {
+		panic(err)
+	}
+
 	return slog.New(
-		slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		slog.NewJSONHandler(logFile, &slog.HandlerOptions{
 			Level: slog.LevelDebug,
 		}),
 	)

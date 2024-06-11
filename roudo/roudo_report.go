@@ -175,10 +175,13 @@ func (r *roudoReport) finishWorking(endAt RoudoTime) error {
 	}
 	report[len(report)-1].EndAt = endAt.Time()
 
-	lastBreak := report[len(report)-1].Breaks[len(report[len(report)-1].Breaks)-1]
-	if lastBreak.EndAt == nil {
-		report[len(report)-1].Breaks = report[len(report)-1].Breaks[:len(report[len(report)-1].Breaks)-1]
+	if len(report[len(report)-1].Breaks) != 0 {
+		lastBreak := report[len(report)-1].Breaks[len(report[len(report)-1].Breaks)-1]
+		if lastBreak.EndAt == nil {
+			report[len(report)-1].Breaks = report[len(report)-1].Breaks[:len(report[len(report)-1].Breaks)-1]
+		}
 	}
+
 	return r.repo.SaveRoudoReport(endAt.ShiftedDate(), report)
 }
 
